@@ -6,6 +6,15 @@ defmodule Postgrex.Extensions.Timestamp do
   @gs_epoch :calendar.datetime_to_gregorian_seconds({{2000, 1, 1}, {0, 0, 0}})
   @max_year 294_276
 
+  def init(opts) do
+    disable_integer_datetimes =
+      Keyword.get_lazy(opts, :disable_integer_datetimes, fn ->
+        Application.get_env(:postgrex, :disable_integer_datetimes, false)
+      end)
+
+    {disable_integer_datetimes, Keyword.get(opts, :decode_binary, :copy)}
+  end
+
   def encode(_) do
     quote location: :keep do
       %NaiveDateTime{} = naive ->
@@ -20,7 +29,17 @@ defmodule Postgrex.Extensions.Timestamp do
     end
   end
 
-  def decode(_) do
+  # legacy support for timestamps in float64 format
+  def decode({true, :copy}) do
+    quote location: :keep do
+      <<8::int32, secs::float64>> ->
+        microsecs = floor(secs * 1_000_000)
+        unquote(__MODULE__).microsecond_to_elixir(microsecs)
+    end
+  end
+
+  # default implementation
+  def decode({false, _}) do
     quote location: :keep do
       <<8::int32, microsecs::int64>> ->
         unquote(__MODULE__).microsecond_to_elixir(microsecs)
